@@ -1374,6 +1374,25 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 		startInFlight.current = true;
 		setStarting(true);
 
+		// Start the Linux audio sidecar as early as possible — well
+		// before `recorder.start()` — so `parec` / `pw-record` has the
+		// full portal-dialog and recorder-setup time to attach to the
+		// default monitor and write its first samples. The sidecar WAV
+		// is trimmed by the mux to match the video duration, so any
+		// audio captured during the dialog/setup is dropped cleanly.
+		// On non-Linux platforms this is a no-op (the main process
+		// checks `process.platform === "linux"`).
+		if (systemAudioEnabled) {
+			window.electronAPI
+				?.prepareLinuxAudioSidecar?.()
+				.catch((stateError) => {
+					console.warn(
+						"Failed to prepare Linux audio sidecar:",
+						stateError,
+					);
+				});
+		}
+
 		try {
 			const platform = await window.electronAPI.getPlatform();
 			hideEditorOverlayCursorByDefault.current = false;
@@ -1632,9 +1651,18 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 
 			if (wantsAudioCapture) {
 				let screenMediaStream: MediaStream;
-				const acquireLinuxPortalStream = (withAudio: boolean) =>
+				// On the Linux portal path the XDG desktop portal is used for
+				// video only — system audio is captured in parallel by a
+				// `parec` / `pw-record` sidecar in the main process (matching
+				// Kooha's approach). Requesting `audio: true` from the portal
+				// is unreliable: every portal backend (gnome, kde, wlr)
+				// surfaces the audio toggle differently, the bundled
+				// ffmpeg-static binary does not even have `pulse` /
+				// `pipewire` input support, and some PipeWire configurations
+				// do not expose system audio to the portal at all.
+				const acquireLinuxPortalStream = () =>
 					mediaDevices.getDisplayMedia({
-						audio: withAudio,
+						audio: false,
 						video: {
 							displaySurface: "monitor",
 							width: { ideal: TARGET_WIDTH, max: TARGET_WIDTH },
@@ -1649,7 +1677,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 				if (systemAudioEnabled) {
 					try {
 						screenMediaStream = useLinuxPortal
-							? await acquireLinuxPortalStream(true)
+							? await acquireLinuxPortalStream()
 							: await mediaDevices.getUserMedia({
 									audio: {
 										mandatory: {
@@ -1668,7 +1696,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 							"System audio is not available for this source. Recording will continue without system audio.",
 						);
 						screenMediaStream = useLinuxPortal
-							? await acquireLinuxPortalStream(false)
+							? await acquireLinuxPortalStream()
 							: await mediaDevices.getUserMedia({
 									audio: false,
 									video: browserScreenVideoConstraints,
@@ -1676,7 +1704,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 					}
 				} else {
 					screenMediaStream = useLinuxPortal
-						? await acquireLinuxPortalStream(false)
+						? await acquireLinuxPortalStream()
 						: await mediaDevices.getUserMedia({
 								audio: false,
 								video: browserScreenVideoConstraints,
@@ -1909,7 +1937,7 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 			recorder.start(RECORDER_TIMESLICE_MS);
 			setRecording(true);
 			try {
-				await window.electronAPI?.setRecordingState(true);
+				await window.electronAPI?.setRecordingState(true, { systemAudioEnabled });
 			} catch (stateError) {
 				console.warn("Failed to notify main process that recording started:", stateError);
 			}

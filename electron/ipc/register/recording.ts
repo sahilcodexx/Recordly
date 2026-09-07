@@ -32,6 +32,16 @@ import {
 } from "../cursor/telemetry";
 import { getFfmpegBinaryPath } from "../ffmpeg/binary";
 import {
+	decideMuxStrategy,
+	extractLinuxAudioSegment,
+	getLinuxAudioSidecarPath,
+	isLinuxAudioSidecarRunning,
+	markLinuxAudioRecordingStart,
+	muxLinuxAudioSidecarIntoVideo,
+	probeVideoAudioStreams,
+	startLinuxAudioSidecar,
+} from "../recording/linuxAudioSidecar";
+import {
 	ensureNativeCaptureHelperBinary,
 	ensureSwiftHelperBinary,
 	getNativeCaptureHelperBinaryPath,
@@ -1753,6 +1763,45 @@ export function registerRecordingHandlers(
 			const recordingsDir = await getRecordingsDir();
 			const videoPath = resolveRecordedVideoStoragePath(recordingsDir, fileName);
 			await fs.writeFile(videoPath, Buffer.from(videoData));
+
+			// Linux-only: splice the Linux system-audio segment (extracted
+			// from the long-running capture in `set-recording-state`) into
+			// the final video. The decision is driven by ffprobe so we
+			// never overwrite a working stream the renderer already
+			// produced (mic + system, or future portal audio support).
+			if (process.platform === "linux") {
+				const sidecarPath = getLinuxAudioSidecarPath();
+				if (sidecarPath) {
+					try {
+						const shape = await probeVideoAudioStreams(videoPath);
+						const strategy = decideMuxStrategy(shape);
+						if (strategy === "skip") {
+							console.warn(
+								"[recording] Linux sidecar: recorded video already has multiple audio streams; leaving it untouched.",
+							);
+							await fs.rm(sidecarPath, { force: true }).catch(() => undefined);
+						} else {
+							const mux = await muxLinuxAudioSidecarIntoVideo(
+								videoPath,
+								sidecarPath,
+								strategy,
+							);
+							if (mux.success) {
+								console.log(
+									`[recording] Linux sidecar muxed into video (${strategy}): ${videoPath}`,
+								);
+							} else {
+								console.warn(
+									`[recording] Linux sidecar mux failed (${strategy}): ${mux.error ?? "unknown error"}`,
+								);
+							}
+						}
+					} catch (error) {
+						console.warn("[recording] Linux sidecar mux check failed:", error);
+					}
+				}
+			}
+
 			return await finalizeStoredVideo(videoPath);
 		} catch (error) {
 			console.error("Failed to store video:", error);
@@ -1811,34 +1860,107 @@ export function registerRecordingHandlers(
 		}
 	});
 
-	ipcMain.handle("set-recording-state", (_, recording: boolean) => {
-		if (recording) {
-			stopCursorCapture();
-			stopInteractionCapture();
-			startWindowBoundsCapture();
-			void startNativeCursorMonitor();
-			setIsCursorCaptureActive(true);
-			setActiveCursorSamples([]);
-			setPendingCursorSamples([]);
-			setCursorCaptureStartTimeMs(Date.now());
-			resetCursorCaptureClock();
-			setLinuxCursorScreenPoint(null);
-			setLastLeftClick(null);
-			sampleCursorPoint();
-			startCursorSampling();
-			void startInteractionCapture();
-		} else {
-			setIsCursorCaptureActive(false);
-			stopCursorCapture();
-			stopInteractionCapture();
-			stopWindowBoundsCapture();
-			stopNativeCursorMonitor();
-			showCursor();
-			setLinuxCursorScreenPoint(null);
-			resetCursorCaptureClock();
-			snapshotCursorTelemetryForPersistence();
-			setActiveCursorSamples([]);
+	ipcMain.handle("prepare-linux-audio-sidecar", async () => {
+		if (process.platform === "linux") {
+			if (!isLinuxAudioSidecarRunning()) {
+				await startLinuxAudioSidecar();
+			}
 		}
+	});
+
+	ipcMain.handle(
+		"set-recording-state",
+		(_, recording: boolean, options?: { systemAudioEnabled?: boolean }) => {
+			if (recording) {
+				stopCursorCapture();
+				stopInteractionCapture();
+				startWindowBoundsCapture();
+				void startNativeCursorMonitor();
+				setIsCursorCaptureActive(true);
+				setActiveCursorSamples([]);
+				setPendingCursorSamples([]);
+				setCursorCaptureStartTimeMs(Date.now());
+				resetCursorCaptureClock();
+				setLinuxCursorScreenPoint(null);
+				setLastLeftClick(null);
+				sampleCursorPoint();
+				startCursorSampling();
+				void startInteractionCapture();
+
+				// On Linux, the XDG portal handles video capture only; system
+				// audio is captured in parallel by a long-running
+				// `parec` / `pw-record` process pointed at the default
+				// PulseAudio / PipeWire monitor. The 1.5–2.5 s
+				// `pipewire-pulse` attach cost is paid once, on the first
+				// recording that actually wants system audio; subsequent
+				// recordings reuse the warm connection and just mark the
+				// buffer offset. The extracted segment is muxed into the
+				// final video in the `store-recorded-video` handler.
+				if (process.platform === "linux" && options?.systemAudioEnabled) {
+					if (isLinuxAudioSidecarRunning()) {
+						markLinuxAudioRecordingStart();
+					} else {
+						startLinuxAudioSidecar()
+							.then((result) => {
+								if (!result.success) {
+									console.warn(
+										`[recording] Linux audio sidecar unavailable: ${result.error ?? "unknown error"}`,
+									);
+									return;
+								}
+								console.log(
+									`[recording] Linux audio sidecar started (${result.backend ?? "unknown backend"})`,
+								);
+								markLinuxAudioRecordingStart();
+							})
+							.catch((error) => {
+								console.warn(
+									"[recording] Linux audio sidecar start failed:",
+									error,
+								);
+							});
+					}
+				}
+			} else {
+				setIsCursorCaptureActive(false);
+				stopCursorCapture();
+				stopInteractionCapture();
+				stopWindowBoundsCapture();
+				stopNativeCursorMonitor();
+				showCursor();
+				setLinuxCursorScreenPoint(null);
+				resetCursorCaptureClock();
+				snapshotCursorTelemetryForPersistence();
+				setActiveCursorSamples([]);
+
+				// Extract the audio segment that was captured between
+				// `markLinuxAudioRecordingStart` and now, write it to the
+				// recordings dir, and keep it around for `store-recorded-video`
+				// to mux. The long-running capture itself stays alive across
+				// recordings so the next recording is instant; it is only
+				// torn down in `app.on("before-quit")` in `main.ts`.
+				if (process.platform === "linux" && isLinuxAudioSidecarRunning()) {
+					const endTimeMs = Date.now();
+					extractLinuxAudioSegment(endTimeMs)
+						.then((extractedPath) => {
+							if (!extractedPath) {
+								console.warn(
+									"[recording] Linux audio segment extraction produced no file; recording will have no system audio.",
+								);
+							} else {
+								console.log(
+									`[recording] Linux audio segment extracted: ${extractedPath}`,
+								);
+							}
+						})
+						.catch((error) => {
+							console.warn(
+								"[recording] Linux audio segment extraction failed:",
+								error,
+							);
+						});
+				}
+			}
 
 		const source = selectedSource || { name: "Screen" };
 		BrowserWindow.getAllWindows().forEach((window) => {
