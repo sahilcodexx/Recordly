@@ -29,6 +29,7 @@ import {
 	MagnifyingGlassPlus as ZoomIn,
 } from "@phosphor-icons/react";
 import type { Span } from "dnd-timeline";
+import { borderStyleToCss, getBorderStyle } from "./border/borderPresets";
 import { motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -6767,20 +6768,30 @@ export default function VideoEditor() {
 									<div className="flex min-w-0 flex-1 items-center justify-center px-1">
 										<div
 											className="relative"
-											style={{
-												width: "auto",
-												height: "100%",
-												aspectRatio: previewAspectRatioValue,
-												maxWidth: "100%",
-												margin: "0 auto",
-												boxSizing: "border-box",
-											}}
+											style={borderStyleToCss(getBorderStyle(borderStyle), {
+												paddingPx: borderPaddingPx,
+												opacity: borderOpacity,
+												cornerShape: borderCornerShape,
+												cornerRadiusPx: borderCornerRadiusPx,
+											})}
 										>
-											{renderPreviewPlayback(
-												videoPlaybackRef,
-												shouldSuspendPreviewRendering,
-												"inline",
-											)}
+											<div
+												className="relative h-full w-full"
+												style={{
+													width: "auto",
+													height: "100%",
+													aspectRatio: previewAspectRatioValue,
+													maxWidth: "100%",
+													margin: "0 auto",
+													boxSizing: "border-box",
+												}}
+											>
+												{renderPreviewPlayback(
+													videoPlaybackRef,
+													shouldSuspendPreviewRendering,
+													"inline",
+												)}
+											</div>
 										</div>
 									</div>
 								</div>
