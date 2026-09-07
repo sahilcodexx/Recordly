@@ -34,6 +34,11 @@ interface UseTimelineDndBindingsParams {
 	onSpeedSpanChange?: (id: string, span: Span) => void;
 	onAudioSpanChange?: (id: string, span: Span, trackIndex?: number) => void;
 	onCaptionSpanChange?: (id: string, span: Span) => void;
+	// Source-audio item span changes (drag-to-align). The id is the
+	// `source-audio-<trackId>-<clipId>` id from TimelineCanvas; the span
+	// is the new position. Resolved by the caller into a per-path delay
+	// update.
+	onSourceAudioSpanChange?: (id: string, span: Span) => void;
 }
 
 type TimelineItemKind =
@@ -44,6 +49,7 @@ type TimelineItemKind =
 	| "speed"
 	| "audio"
 	| "caption"
+	| "source-audio"
 	| null;
 
 export function useTimelineDndBindings({
@@ -61,9 +67,11 @@ export function useTimelineDndBindings({
 	onSpeedSpanChange,
 	onAudioSpanChange,
 	onCaptionSpanChange,
+	onSourceAudioSpanChange,
 }: UseTimelineDndBindingsParams) {
 	const resolveItemKind = useCallback(
 		(id: string): TimelineItemKind => {
+			if (id.startsWith("source-audio-")) return "source-audio";
 			if (zoomRegions.some((r) => r.id === id)) return "zoom";
 			if (trimRegions.some((r) => r.id === id)) return "trim";
 			if (clipRegions.some((r) => r.id === id)) return "clip";
@@ -186,6 +194,8 @@ export function useTimelineDndBindings({
 				onAudioSpanChange?.(id, span, nextTrackIndex);
 			} else if (itemKind === "caption") {
 				onCaptionSpanChange?.(id, span);
+			} else if (itemKind === "source-audio") {
+				onSourceAudioSpanChange?.(id, span);
 			}
 		},
 		[
@@ -198,6 +208,7 @@ export function useTimelineDndBindings({
 			onSpeedSpanChange,
 			onAudioSpanChange,
 			onCaptionSpanChange,
+			onSourceAudioSpanChange,
 		],
 	);
 

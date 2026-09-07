@@ -1,5 +1,9 @@
 import type { SourceAudioTrackSettings } from "@/components/video-editor/audio/audioTypes";
 import type {
+	BorderCornerShape,
+	BorderStyleId,
+} from "@/components/video-editor/border/borderPresets";
+import type {
 	ExportBackendPreference,
 	ExportEncodingMode,
 	ExportFormat,
@@ -144,6 +148,24 @@ export interface ProjectEditorState {
 	aspectRatio: AspectRatio;
 	sourceAudioTrackSettingsByClip?: Record<string, SourceAudioTrackSettings>;
 	defaultSourceAudioTrackSettings?: SourceAudioTrackSettings;
+	// Per-source-audio-path user-controlled start offset (in ms). Lets
+	// the user drag the source-audio item in the timeline to align the
+	// system / mic audio with the video. Keys are the absolute paths of
+	// the sidecar audio files.
+	sourceAudioStartOffsetOverrideMsByPath?: Record<string, number>;
+	// Per-source-audio-path user-controlled trim from the start of the
+	// audio (in ms). Set via the audio panel's "Trim start (ms)" input.
+	// The exporter slices the audio buffer by this amount.
+	sourceAudioTrimStartOverrideMsByPath?: Record<string, number>;
+	// Border / frame style for the video output. Set via the new
+	// "Border" section in the left settings panel. The preview applies
+	// the border as CSS on a wrapper <div>; the export bakes it into
+	// the rendered video via a Canvas 2D overlay in the WebGL renderer.
+	borderStyle?: BorderStyleId;
+	borderPaddingPx?: number;
+	borderOpacity?: number;
+	borderCornerShape?: "square" | "rounded" | "pill";
+	borderCornerRadiusPx?: number;
 	exportEncodingMode: ExportEncodingMode;
 	exportBackendPreference: ExportBackendPreference;
 	exportPipelineModel: ExportPipelineModel;
@@ -204,6 +226,48 @@ export function normalizeExportPipelineModel(value: unknown): ExportPipelineMode
 	}
 
 	return "modern";
+}
+
+export function normalizeBorderStyle(value: unknown): BorderStyleId {
+	const valid: BorderStyleId[] = [
+		"default",
+		"glass-light",
+		"glass-dark",
+		"liquid",
+		"inset-light",
+		"inset-dark",
+		"outline",
+		"border",
+	];
+	return typeof value === "string" && (valid as string[]).includes(value)
+		? (value as BorderStyleId)
+		: "default";
+}
+
+function clampBorderPadding(value: unknown): number {
+	return typeof value === "number" && Number.isFinite(value)
+		? Math.max(0, Math.min(64, Math.round(value)))
+		: 0;
+}
+
+function clampBorderOpacity(value: unknown): number {
+	return typeof value === "number" && Number.isFinite(value)
+		? Math.max(0, Math.min(1, value))
+		: 1;
+}
+
+export function normalizeBorderCornerShape(
+	value: unknown,
+): BorderCornerShape {
+	return value === "square" || value === "rounded" || value === "pill"
+		? value
+		: "rounded";
+}
+
+function clampBorderCornerRadius(value: unknown): number {
+	return typeof value === "number" && Number.isFinite(value)
+		? Math.max(0, Math.min(64, Math.round(value)))
+		: 12;
 }
 
 export function normalizeExportMp4FrameRate(value: unknown): ExportMp4FrameRate {
@@ -1075,6 +1139,31 @@ export function normalizeProjectEditor(editor: Partial<ProjectEditorState>): Pro
 			typeof editor.defaultSourceAudioTrackSettings === "object"
 				? editor.defaultSourceAudioTrackSettings
 				: {},
+		sourceAudioStartOffsetOverrideMsByPath:
+			editor.sourceAudioStartOffsetOverrideMsByPath &&
+			typeof editor.sourceAudioStartOffsetOverrideMsByPath === "object"
+				? Object.fromEntries(
+						Object.entries(editor.sourceAudioStartOffsetOverrideMsByPath).filter(
+							([path, delay]) =>
+								typeof path === "string" && Number.isFinite(delay),
+						),
+					)
+				: {},
+		sourceAudioTrimStartOverrideMsByPath:
+			editor.sourceAudioTrimStartOverrideMsByPath &&
+			typeof editor.sourceAudioTrimStartOverrideMsByPath === "object"
+				? Object.fromEntries(
+						Object.entries(editor.sourceAudioTrimStartOverrideMsByPath).filter(
+							([path, trimMs]) =>
+								typeof path === "string" && Number.isFinite(trimMs),
+						),
+					)
+				: {},
+		borderStyle: normalizeBorderStyle(editor.borderStyle),
+		borderPaddingPx: clampBorderPadding(editor.borderPaddingPx),
+		borderOpacity: clampBorderOpacity(editor.borderOpacity),
+		borderCornerShape: normalizeBorderCornerShape(editor.borderCornerShape),
+		borderCornerRadiusPx: clampBorderCornerRadius(editor.borderCornerRadiusPx),
 		aspectRatio:
 			typeof editor.aspectRatio === "string" &&
 			(validAspectRatios.has(editor.aspectRatio as AspectRatio) ||

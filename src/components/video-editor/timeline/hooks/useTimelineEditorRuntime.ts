@@ -67,6 +67,8 @@ interface UseTimelineEditorRuntimeParams {
 	onCaptionAdded?: (span: Span) => void;
 	selectedCaptionId?: string | null;
 	onSelectCaption?: (id: string | null) => void;
+	// Source-audio drag (drag-to-align): id is `source-audio-<trackId>-<clipId>`.
+	onSourceAudioSpanChange?: (id: string, span: Span) => void;
 	isMac: boolean;
 	keyShortcuts: TimelineShortcutBindings;
 	isTimelineFocusedRef: RefObject<boolean>;
@@ -117,6 +119,7 @@ export function useTimelineEditorRuntime({
 	onCaptionAdded,
 	selectedCaptionId,
 	onSelectCaption,
+	onSourceAudioSpanChange,
 	isMac,
 	keyShortcuts,
 	isTimelineFocusedRef,
@@ -202,6 +205,7 @@ export function useTimelineEditorRuntime({
 		onSpeedSpanChange,
 		onAudioSpanChange,
 		onCaptionSpanChange,
+		onSourceAudioSpanChange,
 	});
 
 	const {

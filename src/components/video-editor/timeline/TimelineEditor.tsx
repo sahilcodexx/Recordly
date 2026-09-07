@@ -1,6 +1,6 @@
 import { Plus } from "@phosphor-icons/react";
 import type { Span } from "dnd-timeline";
-import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
 	SourceAudioTrackMeta,
 	SourceAudioTrackSettings,
@@ -86,6 +86,11 @@ export interface TimelineEditorProps {
 	sourceAudioTrackSettings?: SourceAudioTrackSettings;
 	getSourceAudioTrackSettingsForClip?: (clipId: string | null) => SourceAudioTrackSettings;
 	onSourceAudioTracksMetaChange?: (tracks: SourceAudioTrackMeta) => void;
+	// Per-source-audio-path user-controlled start offset (in ms). Lets the
+	// user drag the source-audio item in the timeline to align the system
+	// / mic audio with the video.
+	sourceAudioStartOffsetMsByPath?: Record<string, number>;
+	onSourceAudioStartOffsetChange?: (path: string, offsetMs: number) => void;
 }
 
 function extractLocalPathFromMediaServerUrl(input: string | null | undefined): string | null {
@@ -169,6 +174,8 @@ const TimelineEditor = forwardRef<TimelineEditorHandle, TimelineEditorProps>(
 			sourceAudioTrackSettings = {},
 			getSourceAudioTrackSettingsForClip,
 			onSourceAudioTracksMetaChange,
+			sourceAudioStartOffsetMsByPath,
+			onSourceAudioStartOffsetChange,
 		},
 		ref,
 	) {
@@ -301,6 +308,16 @@ const TimelineEditor = forwardRef<TimelineEditorHandle, TimelineEditorProps>(
 			[micSidecarPeaks, sourceAudioPeaks, systemSidecarPeaks, t],
 		);
 
+		// Map from source-audio track.id ("system" / "mic" / "mixed") to the
+		// underlying audio file path. The timeline uses this to resolve a
+		// drag on a source-audio item back to the per-path offset entry.
+		const sourceAudioPathByTrackId = useMemo<Record<string, string>>(() => {
+			const map: Record<string, string> = {};
+			if (systemSidecarPaths[0]) map.system = systemSidecarPaths[0];
+			if (micSidecarPaths[0]) map.mic = micSidecarPaths[0];
+			return map;
+		}, [systemSidecarPaths, micSidecarPaths]);
+
 		const isLoading = useMemo(() => {
 			// If we are still actively trying to load audio peaks (main or sidecars)
 			if (videoPath && (sourceAudioLoading || micSidecarLoading || systemSidecarLoading))
@@ -328,6 +345,36 @@ const TimelineEditor = forwardRef<TimelineEditorHandle, TimelineEditorProps>(
 		useEffect(() => {
 			onSourceAudioAvailabilityChange?.(sourceAudioTracks.length > 0);
 		}, [onSourceAudioAvailabilityChange, sourceAudioTracks.length]);
+
+		// Convert a source-audio item drag (new span on the timeline) into
+		// a per-path delay update. The drag delta = newSpan.start -
+		// originalClipStart is the new offset of the source audio relative
+		// to the clip; the parent then carries that through to the
+		// preview and the export.
+		const handleSourceAudioSpanChange = useCallback(
+			(itemId: string, span: Span) => {
+				if (!onSourceAudioStartOffsetChange) return;
+				// itemId = `source-audio-<trackId>-<clipId>`
+				const match = /^source-audio-([^-]+)-(.+)$/.exec(itemId);
+				if (!match) return;
+				const [, trackId, clipId] = match;
+				const path = sourceAudioPathByTrackId?.[trackId];
+				if (!path) return;
+				const clip = clipRegions.find((c) => c.id === clipId);
+				if (!clip) return;
+				// The source-audio span is offset from the clip span by the
+				// user-controlled delay. So `span.start - clip.startMs` is
+				// the new delay. Note: this is the total offset, so it
+				// replaces (not adds to) any existing override.
+				const newOffsetMs = span.start - clip.startMs;
+				onSourceAudioStartOffsetChange(path, newOffsetMs);
+			},
+			[
+				clipRegions,
+				onSourceAudioStartOffsetChange,
+				sourceAudioPathByTrackId,
+			],
+		);
 
 		const {
 			keyframes,
@@ -397,6 +444,7 @@ const TimelineEditor = forwardRef<TimelineEditorHandle, TimelineEditorProps>(
 			onCaptionAdded,
 			selectedCaptionId,
 			onSelectCaption,
+			onSourceAudioSpanChange: handleSourceAudioSpanChange,
 			isMac,
 			keyShortcuts,
 			isTimelineFocusedRef,
@@ -505,6 +553,9 @@ const TimelineEditor = forwardRef<TimelineEditorHandle, TimelineEditorProps>(
 							onClearBlockSelection={clearSelectedBlocks}
 							keyframes={keyframes}
 							sourceAudioTracks={sourceAudioTracks}
+							sourceAudioPathByTrackId={sourceAudioPathByTrackId}
+							sourceAudioStartOffsetMsByPath={sourceAudioStartOffsetMsByPath}
+							onSourceAudioStartOffsetChange={onSourceAudioStartOffsetChange}
 							getSourceAudioTrackSettingsForClip={getSourceAudioTrackSettingsForClip}
 							showSourceAudioTrack={showSourceAudioTrack}
 							liveSpanPreviewById={liveZoomPreview.previewSpans}

@@ -120,6 +120,10 @@ const PhSettings = (props: { className?: string; weight?: "fill" | "regular" }) 
 );
 
 import type { SourceAudioTrackSettings } from "@/components/video-editor/audio/audioTypes";
+import type {
+	BorderCornerShape,
+	BorderStyleId,
+} from "@/components/video-editor/border/borderPresets";
 import { extensionHost } from "@/lib/extensions";
 import { useVideoEditorAudio } from "./audio/useVideoEditorAudio";
 import { resolveAutoCaptionSourcePath } from "./autoCaptionSource";
@@ -172,6 +176,7 @@ import {
 	validateProjectData,
 } from "./projectPersistence";
 import { SettingsPanel } from "./SettingsPanel";
+import { buildSourceSidecarPathCandidates } from "./timeline/sourceAudioTracks";
 import { getDevOpenRecordingConfig, getSmokeExportConfig } from "./smokeExportConfig";
 import { createSmokeExportProgressSampler } from "./smokeExportProgress";
 import {
@@ -564,6 +569,31 @@ export default function VideoEditor() {
 	const [defaultSourceAudioTrackSettings, setDefaultSourceAudioTrackSettings] =
 		useState<SourceAudioTrackSettings>({});
 	const [sourceAudioFallbackRefreshKey, setSourceAudioFallbackRefreshKey] = useState(0);
+	// Per-source-audio-path user-controlled start offset (in ms). Lets the
+	// user drag the source-audio item in the timeline to align the system
+	// / mic audio with the video (fixes the `pipewire-pulse` attach
+	// latency that survives muxing). Keys are the same paths as
+	// `sourceAudioFallbackStartDelayMsByPath`.
+	const [sourceAudioStartOffsetOverrideMsByPath, setSourceAudioStartOffsetOverrideMsByPath] =
+		useState<Record<string, number>>({});
+	// Per-source-audio-path user-controlled trim from the start of the
+	// audio (in ms). Lets the user drag the left edge of the source-audio
+	// item to remove the pre-recording audio at the start (the sidecar
+	// starts before the recorder, so the audio file is `dialog_time`
+	// longer than the video). The export trims the audio file via FFmpeg's
+	// `atrim` filter so the audio plays from the right wall-clock time.
+	const [sourceAudioTrimStartOverrideMsByPath, setSourceAudioTrimStartOverrideMsByPath] =
+		useState<Record<string, number>>({});
+	void setSourceAudioTrimStartOverrideMsByPath; // used by the timeline resize handler
+	// Border / frame style for the video output. Set via the "Border"
+	// section in the left settings panel. The preview applies the border
+	// as CSS on a wrapper <div>; the export bakes it into the rendered
+	// video via a Canvas 2D overlay in the WebGL renderer.
+	const [borderStyle, setBorderStyle] = useState<BorderStyleId>("default");
+	const [borderPaddingPx, setBorderPaddingPx] = useState<number>(0);
+	const [borderOpacity, setBorderOpacity] = useState<number>(1);
+	const [borderCornerShape, setBorderCornerShape] = useState<BorderCornerShape>("rounded");
+	const [borderCornerRadiusPx, setBorderCornerRadiusPx] = useState<number>(12);
 	const [hasClipSourceAudio, setHasClipSourceAudio] = useState(false);
 	const [autoCaptions, setAutoCaptions] = useState<CaptionCue[]>([]);
 	const [autoCaptionSettings, setAutoCaptionSettings] = useState<AutoCaptionSettings>(
@@ -1757,6 +1787,26 @@ export default function VideoEditor() {
 				gifSizePreset: GifSizePreset;
 				sourceAudioTrackSettingsByClip: Record<string, SourceAudioTrackSettings>;
 				defaultSourceAudioTrackSettings: SourceAudioTrackSettings;
+				// Per-source-audio-path user-controlled start offset (in ms).
+				// Lets the user drag the source-audio item in the timeline to
+				// align the system / mic audio with the video. Survives
+				// project save / load. Keys are the absolute paths of the
+				// sidecar audio files (same key space as
+				// `sourceAudioFallbackStartDelayMsByPath`).
+				sourceAudioStartOffsetOverrideMsByPath?: Record<string, number>;
+				// Per-source-audio-path user-controlled trim from the start
+				// of the audio (in ms). Set via the audio panel's "Trim
+				// start (ms)" input. The exporter slices the audio buffer
+				// by this amount so the audio is physically shorter at
+				// the start.
+				sourceAudioTrimStartOverrideMsByPath?: Record<string, number>;
+				// Border / frame style for the video output. Set via the
+				// "Border" section in the left settings panel.
+				borderStyle?: BorderStyleId;
+				borderPaddingPx?: number;
+				borderOpacity?: number;
+				borderCornerShape?: BorderCornerShape;
+				borderCornerRadiusPx?: number;
 			}>,
 		) => {
 			return stripPersistedDevMotionBlurSettings(editor);
@@ -1765,9 +1815,42 @@ export default function VideoEditor() {
 	);
 
 	const currentSourcePath = useMemo(
-		() => videoSourcePath ?? (videoPath ? fromFileUrl(videoPath) : null),
+		() =>
+			videoSourcePath ??
+			(videoPath
+				? (() => {
+						// Handle the local media-server URL the editor hands
+						// out (http://127.0.0.1:port/video?path=...). Falls
+						// back to `fromFileUrl` for direct `file://` URLs.
+						try {
+							const url = new URL(videoPath);
+							if (
+								(url.protocol === "http:" || url.protocol === "https:") &&
+								(url.hostname === "127.0.0.1" || url.hostname === "localhost") &&
+								url.pathname === "/video"
+							) {
+								return url.searchParams.get("path") ?? fromFileUrl(videoPath);
+							}
+						} catch {
+							/* fall through */
+						}
+						return fromFileUrl(videoPath);
+					})()
+				: null),
 		[videoPath, videoSourcePath],
 	);
+	// Build the track-id -> audio-path map for the source-audio settings
+	// panel. Mirrors the logic in `TimelineEditor`. Keys are the absolute
+	// paths of the first valid sidecar file for each kind.
+	const sourceAudioPathByTrackId = useMemo<Record<string, string>>(() => {
+		const map: Record<string, string> = {};
+		if (!currentSourcePath) return map;
+		const systemPaths = buildSourceSidecarPathCandidates(currentSourcePath, "system");
+		if (systemPaths[0]) map.system = systemPaths[0];
+		const micPaths = buildSourceSidecarPathCandidates(currentSourcePath, "mic");
+		if (micPaths[0]) map.mic = micPaths[0];
+		return map;
+	}, [currentSourcePath]);
 	const projectDisplayName = useMemo(() => {
 		const fileName =
 			currentProjectPath?.split(/[\\/]/).pop() ??
@@ -1880,6 +1963,13 @@ export default function VideoEditor() {
 				gifSizePreset,
 				sourceAudioTrackSettingsByClip,
 				defaultSourceAudioTrackSettings,
+				sourceAudioStartOffsetOverrideMsByPath,
+				sourceAudioTrimStartOverrideMsByPath,
+				borderStyle,
+				borderPaddingPx,
+				borderOpacity,
+				borderCornerShape,
+				borderCornerRadiusPx,
 			}),
 		[
 			buildPersistedEditorState,
@@ -1947,6 +2037,13 @@ export default function VideoEditor() {
 			frame,
 			sourceAudioTrackSettingsByClip,
 			defaultSourceAudioTrackSettings,
+			sourceAudioStartOffsetOverrideMsByPath,
+			sourceAudioTrimStartOverrideMsByPath,
+			borderStyle,
+			borderPaddingPx,
+			borderOpacity,
+			borderCornerShape,
+			borderCornerRadiusPx,
 		],
 	);
 
@@ -2130,6 +2227,12 @@ export default function VideoEditor() {
 			);
 			setDefaultSourceAudioTrackSettings(
 				normalizedEditor.defaultSourceAudioTrackSettings ?? {},
+			);
+			setSourceAudioStartOffsetOverrideMsByPath(
+				normalizedEditor.sourceAudioStartOffsetOverrideMsByPath ?? {},
+			);
+			setSourceAudioTrimStartOverrideMsByPath(
+				normalizedEditor.sourceAudioTrimStartOverrideMsByPath ?? {},
 			);
 			setAutoCaptions(normalizedEditor.autoCaptions);
 			setAutoCaptionSettings(normalizedEditor.autoCaptionSettings);
@@ -3624,6 +3727,8 @@ export default function VideoEditor() {
 		previewVolume,
 		sourceAudioFallbackRefreshKey,
 		summarizeErrorMessage,
+		sourceAudioStartOffsetOverrideMsByPath,
+		sourceAudioTrimStartOverrideMsByPath,
 		onSourceFallbackLoadError: (error) => {
 			toast.warning(
 				`Could not load companion audio source: ${summarizeErrorMessage(getErrorMessage(error))}`,
@@ -4881,7 +4986,9 @@ export default function VideoEditor() {
 						clipRegions,
 						sourceAudioFallbackPaths: audio.sourceAudioFallbackPaths,
 						sourceAudioFallbackStartDelayMsByPath:
-							audio.sourceAudioFallbackStartDelayMsByPath,
+							audio.effectiveSourceAudioStartDelayMsByPath ?? audio.sourceAudioFallbackStartDelayMsByPath,
+						sourceAudioTrimStartMsByPath:
+							audio.effectiveSourceAudioTrimStartMsByPath ?? {},
 						sourceAudioTrackSettings: sourceAudioTrackSettingsForExport,
 						previewWidth,
 						previewHeight,
@@ -5146,7 +5253,8 @@ export default function VideoEditor() {
 			audioRegions,
 			clipRegions,
 			audio.sourceAudioFallbackPaths,
-			audio.sourceAudioFallbackStartDelayMsByPath,
+			audio.effectiveSourceAudioStartDelayMsByPath ?? audio.sourceAudioFallbackStartDelayMsByPath,
+			audio.effectiveSourceAudioTrimStartMsByPath ?? {},
 			audio.activeSourceAudioTrackSettings,
 			audio.selectedClipSourceAudioTrackSettings,
 			exportEncodingMode,
@@ -6409,6 +6517,19 @@ export default function VideoEditor() {
 								onSourceAudioTrackNormalizeChange={
 									audio.onSelectedClipSourceAudioTrackNormalizeChange
 								}
+								sourceAudioPathByTrackId={sourceAudioPathByTrackId}
+								sourceAudioTrimStartMsByPath={sourceAudioTrimStartOverrideMsByPath}
+								onSourceAudioTrimStartChange={(path, trimStartMs) => {
+									setSourceAudioTrimStartOverrideMsByPath((prev) => {
+										const next = { ...prev };
+										if (trimStartMs <= 0) {
+											delete next[path];
+										} else {
+											next[path] = Math.round(trimStartMs);
+										}
+										return next;
+									});
+								}}
 								selectedAudioId={selectedAudioId}
 								selectedAudioVolume={
 									selectedAudioId
@@ -6890,6 +7011,18 @@ export default function VideoEditor() {
 						onSelectAnnotation={handleSelectAnnotation}
 						showSourceAudioTrack={clipRegions.some((c) => c.showSourceAudio)}
 						sourceAudioResourceVersion={sourceAudioFallbackRefreshKey}
+						sourceAudioStartOffsetMsByPath={sourceAudioStartOffsetOverrideMsByPath}
+						onSourceAudioStartOffsetChange={(path, offsetMs) => {
+							setSourceAudioStartOffsetOverrideMsByPath((prev) => {
+								const next = { ...prev };
+								if (Math.abs(offsetMs) < 1) {
+									delete next[path];
+								} else {
+									next[path] = Math.round(offsetMs);
+								}
+								return next;
+							});
+						}}
 						sourceAudioTrackSettings={audio.activeSourceAudioTrackSettings}
 						getSourceAudioTrackSettingsForClip={
 							audio.getSourceAudioTrackSettingsForClip
