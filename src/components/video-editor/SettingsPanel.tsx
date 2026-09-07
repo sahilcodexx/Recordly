@@ -719,6 +719,13 @@ interface SettingsPanelProps {
 	sourceAudioTrackSettings?: Record<string, { volume: number; normalize: boolean }>;
 	onSourceAudioTrackVolumeChange?: (id: string, volume: number) => void;
 	onSourceAudioTrackNormalizeChange?: (id: string, normalize: boolean) => void;
+	// Per-source-audio-path user-controlled trim from the start of the
+	// audio (in ms). Set via the audio panel — the exporter slices the
+	// audio buffer by this amount. Keys are the absolute paths of the
+	// sidecar audio files.
+	sourceAudioPathByTrackId?: Record<string, string>;
+	sourceAudioTrimStartMsByPath?: Record<string, number>;
+	onSourceAudioTrimStartChange?: (path: string, trimStartMs: number) => void;
 	onClipDelete?: (id: string) => void;
 	selectedAudioId?: string | null;
 	selectedAudioVolume?: number | null;
@@ -1181,6 +1188,9 @@ export function SettingsPanel({
 	sourceAudioTrackSettings = {},
 	onSourceAudioTrackVolumeChange,
 	onSourceAudioTrackNormalizeChange,
+	sourceAudioPathByTrackId,
+	sourceAudioTrimStartMsByPath,
+	onSourceAudioTrimStartChange,
 	onClipDelete,
 	selectedAudioId,
 	selectedAudioVolume,
@@ -3548,6 +3558,10 @@ export function SettingsPanel({
 								volume: 1,
 								normalize: false,
 							};
+							const sourceAudioPath = sourceAudioPathByTrackId?.[track.id];
+							const trimStartMs = sourceAudioPath
+								? sourceAudioTrimStartMsByPath?.[sourceAudioPath] ?? 0
+								: 0;
 							return (
 								<div
 									key={track.id}
@@ -3565,6 +3579,9 @@ export function SettingsPanel({
 													track.id,
 													false,
 												);
+												if (sourceAudioPath && onSourceAudioTrimStartChange) {
+													onSourceAudioTrimStartChange(sourceAudioPath, 0);
+												}
 											}}
 											className="text-[10px] text-[#2563EB] transition-opacity hover:opacity-80"
 										>
@@ -3598,6 +3615,39 @@ export function SettingsPanel({
 											parseFloat(text.replace(/%$/, "")) / 100
 										}
 									/>
+									{sourceAudioPath && (
+										<div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-foreground/[0.03] px-2.5 py-1.5">
+											<span
+												className="shrink-0 text-[10px] text-muted-foreground"
+												title="Trim the start of the system/mic audio (in milliseconds). Useful when the audio capture started before the video and there's pre-recording audio you want to remove."
+											>
+												{tSettings(
+													"audio.trimStart",
+													"Trim start (ms)",
+												)}
+											</span>
+											<input
+												type="number"
+												min={0}
+												step={10}
+												value={Math.round(trimStartMs)}
+												onChange={(e) => {
+													const v = Number(e.target.value);
+													if (
+														Number.isFinite(v) &&
+														v >= 0 &&
+														onSourceAudioTrimStartChange
+													) {
+														onSourceAudioTrimStartChange(
+															sourceAudioPath,
+															Math.round(v),
+														);
+													}
+												}}
+												className="w-20 rounded border border-foreground/10 bg-background/40 px-1.5 py-0.5 text-right text-[11px] text-foreground outline-none focus:border-[#06b6d4]/50"
+											/>
+										</div>
+									)}
 								</div>
 							);
 						})}

@@ -60,6 +60,37 @@ export function softLimitOfflineMixPeaksInPlace(buffer: AudioBuffer): boolean {
 	return changed;
 }
 
+/**
+ * Trim the first `seconds` of an AudioBuffer. Used to apply the
+ * user-controlled source-audio trim (set via the timeline's left-edge
+ * resize) in the exporter. The returned AudioBuffer is a fresh buffer
+ * with the same channel count and sample rate; only the duration is
+ * shortened. We allocate via a 1-sample `OfflineAudioContext` (cheaper
+ * than spinning up a renderer) and copy the channel data ourselves.
+ */
+function sliceAudioBufferStart(buffer: AudioBuffer, seconds: number): AudioBuffer {
+	if (seconds <= 0) return buffer;
+	const sampleRate = buffer.sampleRate;
+	const startSample = Math.min(
+		buffer.length,
+		Math.max(0, Math.floor(seconds * sampleRate)),
+	);
+	const newLength = Math.max(1, buffer.length - startSample);
+	const ctx = new OfflineAudioContext(buffer.numberOfChannels, 1, sampleRate);
+	const dst = ctx.createBuffer(buffer.numberOfChannels, newLength, sampleRate);
+	for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+		const src = buffer.getChannelData(ch);
+		const out = dst.getChannelData(ch);
+		if (startSample < buffer.length) {
+			out.set(src.subarray(startSample));
+		}
+		// If startSample >= buffer.length, the loop above runs once and
+		// `out` is already zero-filled (Web Audio spec), so the buffer is
+		// silent — the rest of the pipeline treats it as no audio.
+	}
+	return dst;
+}
+
 function resolveSourceTrackGain(
 	sourceAudioTrackSettings: SourceAudioTrackSettings | undefined,
 	trackId: "mic" | "system" | "mixed",
@@ -240,6 +271,7 @@ export class AudioProcessor {
 		audioRegions?: AudioRegion[],
 		sourceAudioFallbackPaths?: string[],
 		sourceAudioFallbackStartDelayMsByPath?: Record<string, number>,
+		sourceAudioTrimStartMsByPath?: Record<string, number>,
 		sourceAudioTrackSettings?: SourceAudioTrackSettings,
 		clipRegions?: ClipRegion[],
 	): Promise<void> {
@@ -292,6 +324,7 @@ export class AudioProcessor {
 				sortedAudioRegions,
 				sortedSourceAudioFallbackPaths,
 				sourceAudioFallbackStartDelayMsByPath,
+				sourceAudioTrimStartMsByPath,
 				sourceAudioTrackSettings,
 				clipRegions,
 				muxer,
@@ -325,6 +358,7 @@ export class AudioProcessor {
 				[],
 				routingPolicy.playbackPaths,
 				sourceAudioFallbackStartDelayMsByPath,
+				sourceAudioTrimStartMsByPath,
 				sourceAudioTrackSettings,
 				clipRegions,
 				muxer,
@@ -373,6 +407,7 @@ export class AudioProcessor {
 		audioRegions?: AudioRegion[],
 		sourceAudioFallbackPaths?: string[],
 		sourceAudioFallbackStartDelayMsByPath?: Record<string, number>,
+		sourceAudioTrimStartMsByPath?: Record<string, number>,
 		sourceAudioTrackSettings?: SourceAudioTrackSettings,
 		clipRegions?: ClipRegion[],
 	): Promise<Blob> {
@@ -400,6 +435,7 @@ export class AudioProcessor {
 			sortedAudioRegions,
 			sortedSourceAudioFallbackPaths,
 			sourceAudioFallbackStartDelayMsByPath,
+			sourceAudioTrimStartMsByPath,
 			sourceAudioTrackSettings,
 			clipRegions,
 		);
@@ -677,6 +713,7 @@ export class AudioProcessor {
 		audioRegions: AudioRegion[],
 		sourceAudioFallbackPaths: string[],
 		sourceAudioFallbackStartDelayMsByPath: Record<string, number> | undefined,
+		sourceAudioTrimStartMsByPath: Record<string, number> | undefined,
 		sourceAudioTrackSettings: SourceAudioTrackSettings | undefined,
 		clipRegions: ClipRegion[] | undefined,
 		muxer: VideoMuxer,
@@ -688,6 +725,7 @@ export class AudioProcessor {
 			audioRegions,
 			sourceAudioFallbackPaths,
 			sourceAudioFallbackStartDelayMsByPath,
+			sourceAudioTrimStartMsByPath,
 			sourceAudioTrackSettings,
 			clipRegions,
 		);
@@ -702,6 +740,7 @@ export class AudioProcessor {
 		audioRegions: AudioRegion[],
 		sourceAudioFallbackPaths: string[],
 		sourceAudioFallbackStartDelayMsByPath?: Record<string, number>,
+		sourceAudioTrimStartMsByPath?: Record<string, number>,
 		sourceAudioTrackSettings?: SourceAudioTrackSettings,
 		clipRegions?: ClipRegion[],
 	): Promise<PreparedOfflineRender> {
@@ -752,15 +791,28 @@ export class AudioProcessor {
 			const buffer = await this.decodeAudioFromUrl(audioPath);
 			if (!buffer) continue;
 
+			// Apply the user-controlled trim from the start of the audio.
+			// This is the JS equivalent of FFmpeg's `atrim=start=<seconds>`
+			// filter — it physically shortens the audio file by dropping
+			// the first `trimStartMs` worth of samples. The effective
+			// start delay (set above via `sourceAudioFallbackStartDelayMsByPath`)
+			// is reduced by the trim, so the audible content stays in
+			// sync with the video after the trim.
+			const trimStartMs = sourceAudioTrimStartMsByPath?.[audioPath] ?? 0;
+			const trimmedBuffer =
+				trimStartMs > 0
+					? sliceAudioBufferStart(buffer, trimStartMs / 1000)
+					: buffer;
+
 			companionEntries.push({
-				buffer,
+				buffer: trimmedBuffer,
 				gain: resolveSourceTrackGain(
 					sourceAudioTrackSettings,
 					getSourceTrackIdFromPath(audioPath),
 				),
 				startDelaySec: estimateCompanionAudioStartDelaySeconds(
 					refDuration,
-					buffer.duration,
+					trimmedBuffer.duration,
 					sourceAudioFallbackStartDelayMsByPath?.[audioPath],
 				),
 			});

@@ -14,6 +14,12 @@ export interface ExportConfig {
 	maxPendingFrames?: number;
 	maxInFlightNativeWrites?: number;
 	sourceAudioFallbackStartDelayMsByPath?: Record<string, number>;
+	// Per-source-audio-path trim from the start of the audio file (ms).
+	// Applied by the exporter as an FFmpeg `atrim=start=<seconds>` filter
+	// so the audio file is physically shortened (not just delayed). The
+	// source-audio track item in the timeline supports left-edge resize
+	// to set this value.
+	sourceAudioTrimStartMsByPath?: Record<string, number>;
 }
 
 export type ExportRenderBackend = "webgpu" | "webgl";
