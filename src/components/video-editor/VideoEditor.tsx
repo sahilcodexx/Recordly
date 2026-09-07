@@ -7,6 +7,7 @@ import {
 	Cursor,
 	DownloadSimple as Download,
 	FolderOpen,
+	FrameCorners as PhFrameCorners,
 	Gear,
 	Pause,
 	Camera as PhCameraRegular,
@@ -1693,6 +1694,11 @@ export default function VideoEditor() {
 				id: "webcam" as const,
 				label: t("settings.sections.webcam", "Webcam"),
 				icon: PhCamera,
+			},
+			{
+				id: "border" as const,
+				label: t("settings.sections.border", "Border"),
+				icon: PhFrameCorners as unknown as typeof PhPuzzle,
 			},
 			{
 				id: "captions" as const,
@@ -6546,6 +6552,16 @@ export default function VideoEditor() {
 								onAudioVolumeChange={handleAudioVolumeChange}
 								onAudioNormalizeChange={handleAudioNormalizeChange}
 								onAudioDelete={handleAudioDelete}
+								borderStyle={borderStyle}
+								borderPaddingPx={borderPaddingPx}
+								borderOpacity={borderOpacity}
+								borderCornerShape={borderCornerShape}
+								borderCornerRadiusPx={borderCornerRadiusPx}
+								onBorderStyleChange={setBorderStyle}
+								onBorderPaddingChange={setBorderPaddingPx}
+								onBorderOpacityChange={setBorderOpacity}
+								onBorderCornerShapeChange={setBorderCornerShape}
+								onBorderCornerRadiusChange={setBorderCornerRadiusPx}
 								shadowIntensity={shadowIntensity}
 								onShadowChange={setShadowIntensity}
 								backgroundBlur={backgroundBlur}

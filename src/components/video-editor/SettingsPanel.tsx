@@ -28,6 +28,12 @@ import {
 	getWallpaperThumbnailUrl,
 } from "@/lib/assetPath";
 import {
+	BORDER_STYLES,
+	type BorderCornerShape,
+	type BorderStyleId,
+	borderStyleToCss,
+} from "./border/borderPresets";
+import {
 	TEMPORAL_MOTION_BLUR_DEFAULT_SAMPLE_COUNT,
 	TEMPORAL_MOTION_BLUR_DEFAULT_SHUTTER_FRACTION,
 } from "@/lib/exporter/temporalMotionBlur";
@@ -729,10 +735,23 @@ interface SettingsPanelProps {
 	onClipDelete?: (id: string) => void;
 	selectedAudioId?: string | null;
 	selectedAudioVolume?: number | null;
-	selectedAudioNormalize?: boolean | null;
+	selectedAudioNormalize?: boolean | number | null;
 	onAudioVolumeChange?: (volume: number) => void;
 	onAudioNormalizeChange?: (normalize: boolean) => void;
 	onAudioDelete?: (id: string) => void;
+	// Border / frame style for the video output. Set in the new "Border"
+	// section. The preview applies the border as CSS on a wrapper <div>;
+	// the export bakes it into the rendered video.
+	borderStyle?: BorderStyleId;
+	borderPaddingPx?: number;
+	borderOpacity?: number;
+	borderCornerShape?: BorderCornerShape;
+	borderCornerRadiusPx?: number;
+	onBorderStyleChange?: (style: BorderStyleId) => void;
+	onBorderPaddingChange?: (px: number) => void;
+	onBorderOpacityChange?: (opacity: number) => void;
+	onBorderCornerShapeChange?: (shape: BorderCornerShape) => void;
+	onBorderCornerRadiusChange?: (px: number) => void;
 	shadowIntensity?: number;
 	onShadowChange?: (intensity: number) => void;
 	backgroundBlur?: number;
@@ -1198,6 +1217,16 @@ export function SettingsPanel({
 	onAudioVolumeChange,
 	onAudioNormalizeChange,
 	onAudioDelete,
+	borderStyle = "default",
+	borderPaddingPx = 0,
+	borderOpacity = 1,
+	borderCornerShape = "rounded" as BorderCornerShape,
+	borderCornerRadiusPx = 12,
+	onBorderStyleChange,
+	onBorderPaddingChange,
+	onBorderOpacityChange,
+	onBorderCornerShapeChange,
+	onBorderCornerRadiusChange,
 	shadowIntensity = 0.67,
 	onShadowChange,
 	backgroundBlur = 0,
@@ -3462,6 +3491,141 @@ export function SettingsPanel({
 			</section>
 		);
 
+		const borderSectionContent = (
+			<section className="flex flex-col gap-3">
+				<div className="flex items-center justify-between gap-3">
+					<SectionLabel>{tSettings("border.title", "Border")}</SectionLabel>
+					<button
+						type="button"
+						onClick={() => {
+							onBorderStyleChange?.("default");
+							onBorderPaddingChange?.(0);
+							onBorderOpacityChange?.(1);
+							onBorderCornerShapeChange?.("rounded");
+							onBorderCornerRadiusChange?.(12);
+						}}
+						className="text-[10px] text-[#2563EB] transition-opacity hover:opacity-80"
+					>
+						{t("common.actions.reset", "Reset")}
+					</button>
+				</div>
+
+				{/* 4×2 swatch grid of the 8 styles. Each swatch is a tiny live
+				    preview of the style at small size. Click to select. */}
+				<div className="grid grid-cols-4 gap-1.5">
+					{BORDER_STYLES.map((style) => {
+						const isActive = borderStyle === style.id;
+						const swatchCss = borderStyleToCss(style, {
+							paddingPx: 4,
+							opacity: 1,
+							cornerShape: borderCornerShape,
+							cornerRadiusPx: Math.min(6, borderCornerRadiusPx / 2),
+						});
+						return (
+							<button
+								key={style.id}
+								type="button"
+								onClick={() => onBorderStyleChange?.(style.id)}
+								className={cn(
+									"group flex h-14 flex-col items-center justify-end gap-1 rounded-lg border p-1.5 transition-all",
+									isActive
+										? "border-[#2563EB] bg-[#2563EB]/10 ring-1 ring-[#2563EB]/50"
+										: "border-foreground/10 bg-foreground/[0.03] hover:border-foreground/30",
+								)}
+								title={style.label}
+								aria-pressed={isActive}
+							>
+								<div
+									className="h-7 w-full rounded-sm"
+									style={swatchCss}
+								>
+									<div
+										className="h-full w-full rounded-sm"
+										style={{
+											background:
+												"linear-gradient(135deg, rgba(99,102,241,0.85), rgba(236,72,153,0.85))",
+										}}
+									/>
+								</div>
+								<span className="text-[9px] text-muted-foreground leading-none">
+									{style.label}
+								</span>
+							</button>
+						);
+					})}
+				</div>
+
+				<SliderControl
+					label={tSettings("border.padding", "Padding")}
+					value={borderPaddingPx}
+					defaultValue={0}
+					min={0}
+					max={64}
+					step={1}
+					onChange={(v) => onBorderPaddingChange?.(v)}
+					formatValue={(v) => `${Math.round(v)}px`}
+					parseInput={(text) => parseFloat(text.replace(/px$/, "")) || 0}
+				/>
+
+				<SliderControl
+					label={tSettings("border.opacity", "Opacity")}
+					value={borderOpacity}
+					defaultValue={1}
+					min={0}
+					max={1}
+					step={0.01}
+					onChange={(v) => onBorderOpacityChange?.(v)}
+					formatValue={(v) => `${Math.round(v * 100)}%`}
+					parseInput={(text) => parseFloat(text.replace(/%$/, "")) / 100}
+				/>
+
+				<div className="flex items-center justify-between rounded-lg bg-foreground/[0.03] px-2.5 py-1.5">
+					<span className="text-[10px] text-muted-foreground">
+						{tSettings("border.cornerShape", "Corners")}
+					</span>
+					<ToggleGroup
+						type="single"
+						value={borderCornerShape}
+						onValueChange={(v) => {
+							if (v) onBorderCornerShapeChange?.(v as BorderCornerShape);
+						}}
+						className="gap-0.5"
+					>
+						<ToggleGroupItem
+							value="square"
+							className="data-[state=on]:bg-[#2563EB]/20 data-[state=on]:text-[#2563EB] h-6 px-2 text-[10px]"
+						>
+							{tSettings("border.cornerSquare", "Square")}
+						</ToggleGroupItem>
+						<ToggleGroupItem
+							value="rounded"
+							className="data-[state=on]:bg-[#2563EB]/20 data-[state=on]:text-[#2563EB] h-6 px-2 text-[10px]"
+						>
+							{tSettings("border.cornerRounded", "Rounded")}
+						</ToggleGroupItem>
+						<ToggleGroupItem
+							value="pill"
+							className="data-[state=on]:bg-[#2563EB]/20 data-[state=on]:text-[#2563EB] h-6 px-2 text-[10px]"
+						>
+							{tSettings("border.cornerPill", "Pill")}
+						</ToggleGroupItem>
+					</ToggleGroup>
+				</div>
+
+				<SliderControl
+					label={tSettings("border.cornerSize", "Corner size")}
+					value={borderCornerRadiusPx}
+					defaultValue={12}
+					min={0}
+					max={64}
+					step={1}
+					onChange={(v) => onBorderCornerRadiusChange?.(v)}
+					formatValue={(v) => `${Math.round(v)}px`}
+					parseInput={(text) => parseFloat(text.replace(/px$/, "")) || 0}
+				/>
+			</section>
+		);
+
 		const clipSectionContent = (
 			<section className="flex flex-col gap-2">
 				<div className="flex items-center justify-between gap-3">
@@ -3695,6 +3859,8 @@ export function SettingsPanel({
 				return clipSectionContent;
 			case "audio":
 				return audioSectionContent;
+			case "border":
+				return borderSectionContent;
 			case "frame":
 				return sceneSectionContent;
 			case "crop":
