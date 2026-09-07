@@ -48,6 +48,18 @@ interface UseVideoEditorAudioParams {
 	sourceAudioFallbackRefreshKey?: number;
 	summarizeErrorMessage: (message: string) => string;
 	onSourceFallbackLoadError: (error: unknown) => void;
+	// User-controlled override of the per-source-audio-path start delay
+	// (set by dragging the source-audio item in the timeline). When a path
+	// is present in this map, the override replaces the value returned by
+	// the main process's `getVideoAudioFallbackPaths` for the preview and
+	// the export.
+	sourceAudioStartOffsetOverrideMsByPath?: Record<string, number>;
+	// User-controlled override of the per-source-audio-path trim from the
+	// start of the audio (set by dragging the left edge of the
+	// source-audio item in the timeline). Subtracted from the effective
+	// start delay for the preview, and applied as an FFmpeg `atrim`
+	// filter in the export.
+	sourceAudioTrimStartOverrideMsByPath?: Record<string, number>;
 }
 
 export function useVideoEditorAudio({
@@ -68,6 +80,8 @@ export function useVideoEditorAudio({
 	sourceAudioFallbackRefreshKey = 0,
 	summarizeErrorMessage,
 	onSourceFallbackLoadError,
+	sourceAudioStartOffsetOverrideMsByPath,
+	sourceAudioTrimStartOverrideMsByPath,
 }: UseVideoEditorAudioParams) {
 	const fallbackLookupSourcePath = useMemo(
 		() => extractLocalPathFromMediaServerUrl(currentSourcePath) ?? currentSourcePath,
@@ -80,6 +94,52 @@ export function useVideoEditorAudio({
 			refreshKey: sourceAudioFallbackRefreshKey,
 			summarizeErrorMessage,
 		});
+
+	// Effective per-path delay = user override (if set) || main-process default.
+	// The preview and the export should both read this so dragging the
+	// source-audio item in the timeline takes effect everywhere.
+	const effectiveSourceAudioStartDelayMsByPath = useMemo(() => {
+		const merged: Record<string, number> = { ...sourceAudioFallbackStartDelayMsByPath };
+		if (sourceAudioStartOffsetOverrideMsByPath) {
+			for (const [path, delayMs] of Object.entries(sourceAudioStartOffsetOverrideMsByPath)) {
+				if (Number.isFinite(delayMs)) {
+					merged[path] = delayMs;
+				}
+			}
+		}
+		// Subtract any user-controlled trim. The trim removes the first
+		// N ms of the audio file, so the audio that remains is N ms
+		// shorter at the start. The effective start delay is reduced by
+		// the trim so the audible content lines up with the video.
+		if (sourceAudioTrimStartOverrideMsByPath) {
+			for (const [path, trimMs] of Object.entries(sourceAudioTrimStartOverrideMsByPath)) {
+				if (Number.isFinite(trimMs) && trimMs > 0) {
+					const current = merged[path] ?? 0;
+					merged[path] = Math.max(0, current - trimMs);
+				}
+			}
+		}
+		return merged;
+	}, [
+		sourceAudioFallbackStartDelayMsByPath,
+		sourceAudioStartOffsetOverrideMsByPath,
+		sourceAudioTrimStartOverrideMsByPath,
+	]);
+
+	// Effective per-path trim from the start of the audio file (in ms).
+	// Applied by the export as an FFmpeg `atrim=start=<seconds>` filter
+	// so the audio file is physically shortened (not just delayed).
+	const effectiveSourceAudioTrimStartMsByPath = useMemo(() => {
+		const out: Record<string, number> = {};
+		if (sourceAudioTrimStartOverrideMsByPath) {
+			for (const [path, trimMs] of Object.entries(sourceAudioTrimStartOverrideMsByPath)) {
+				if (Number.isFinite(trimMs) && trimMs > 0) {
+					out[path] = Math.round(trimMs);
+				}
+			}
+		}
+		return out;
+	}, [sourceAudioTrimStartOverrideMsByPath]);
 
 	const sourceTrackRoutingPolicy = useMemo(
 		() => resolveSourceTrackRoutingPolicy(currentSourcePath, sourceAudioFallbackPaths),
@@ -125,7 +185,7 @@ export function useVideoEditorAudio({
 		duration,
 		effectiveSpeedRegions,
 		previewSourceAudioFallbackPaths,
-		sourceAudioFallbackStartDelayMsByPath,
+		sourceAudioFallbackStartDelayMsByPath: effectiveSourceAudioStartDelayMsByPath,
 		sourceAudioResourceVersion: sourceAudioFallbackRefreshKey,
 		isCurrentClipMuted,
 		getSourceTrackPreviewGain,
@@ -135,6 +195,8 @@ export function useVideoEditorAudio({
 	return {
 		sourceAudioFallbackPaths,
 		sourceAudioFallbackStartDelayMsByPath,
+		effectiveSourceAudioStartDelayMsByPath,
+		effectiveSourceAudioTrimStartMsByPath,
 		previewSourceAudioFallbackPaths,
 		shouldMutePreviewVideo,
 		activeClipIdAtCurrentTime,

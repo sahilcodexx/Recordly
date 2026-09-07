@@ -75,6 +75,9 @@ interface TimelineCanvasProps {
 	onClearBlockSelection?: () => void;
 	keyframes?: { id: string; time: number }[];
 	sourceAudioTracks?: SourceAudioTrackWithPeaks[];
+	sourceAudioPathByTrackId?: Record<string, string>;
+	sourceAudioStartOffsetMsByPath?: Record<string, number>;
+	onSourceAudioStartOffsetChange?: (path: string, offsetMs: number) => void;
 	getSourceAudioTrackSettingsForClip?: (clipId: string | null) => SourceAudioTrackSettings;
 	showSourceAudioTrack?: boolean;
 	liveSpanPreviewById?: Record<string, { start: number; end: number }>;
@@ -373,6 +376,9 @@ interface TimelineCanvasRowsProps {
 	onSelectAudio?: (id: string | null) => void;
 	onSelectCaption?: (id: string | null) => void;
 	sourceAudioTracks?: SourceAudioTrackWithPeaks[];
+	sourceAudioPathByTrackId?: Record<string, string>;
+	sourceAudioStartOffsetMsByPath?: Record<string, number>;
+	onSourceAudioStartOffsetChange?: (path: string, offsetMs: number) => void;
 	getSourceAudioTrackSettingsForClip?: (clipId: string | null) => SourceAudioTrackSettings;
 	showSourceAudioTrack?: boolean;
 	liveSpanPreviewById?: Record<string, { start: number; end: number }>;
@@ -452,6 +458,9 @@ const TimelineCanvasRows = memo(function TimelineCanvasRows({
 	onSelectAudio,
 	onSelectCaption,
 	sourceAudioTracks = [],
+	sourceAudioPathByTrackId,
+	sourceAudioStartOffsetMsByPath,
+	onSourceAudioStartOffsetChange,
 	getSourceAudioTrackSettingsForClip,
 	showSourceAudioTrack = false,
 	liveSpanPreviewById,
@@ -555,36 +564,53 @@ const TimelineCanvasRows = memo(function TimelineCanvasRows({
 				))}
 			</Row>
 			{showSourceAudioTrack &&
-				sourceAudioTracks.map((track) => (
-					<Row key={track.id} id={`${SOURCE_AUDIO_ROW_ID}-${track.id}`}>
-						{clipItems
-							.filter((item) => item.showSourceAudio)
-							.map((item) => {
-								const settings = getSourceAudioTrackSettingsForClip?.(item.id)?.[
-									track.id
-								] ?? { volume: 1, normalize: false };
-								return (
-									<Item
-										key={`source-audio-${track.id}-${item.id}`}
-										id={`source-audio-${track.id}-${item.id}`}
-										rowId={`${SOURCE_AUDIO_ROW_ID}-${track.id}`}
-										span={liveSpanPreviewById?.[item.id] ?? item.span}
-										disabled
-										isSelected={item.id === selectedClipId}
-										onSelect={() => onSelectClip?.(item.id)}
-										variant="audio"
-										waveformPeaks={track.peaks}
-										waveformSegmentSpan={item.sourceSpan ?? item.span}
-										waveformGain={Math.max(0, Math.min(1, settings.volume))}
-										waveformNormalize={Boolean(settings.normalize)}
-										muted={item.muted}
-									>
-										{track.label}
-									</Item>
-								);
-							})}
-					</Row>
-				))}
+				sourceAudioTracks.map((track) => {
+					const sourceAudioPath = sourceAudioPathByTrackId?.[track.id];
+					const overrideOffsetMs = sourceAudioPath
+						? sourceAudioStartOffsetMsByPath?.[sourceAudioPath]
+						: undefined;
+					return (
+						<Row key={track.id} id={`${SOURCE_AUDIO_ROW_ID}-${track.id}`}>
+							{clipItems
+								.filter((item) => item.showSourceAudio)
+								.map((item) => {
+									const settings = getSourceAudioTrackSettingsForClip?.(item.id)?.[
+										track.id
+									] ?? { volume: 1, normalize: false };
+									// Apply the user-controlled offset to the source-audio
+									// span so dragging actually moves the audio on the
+									// timeline (and downstream, in the export).
+									const baseSpan = liveSpanPreviewById?.[item.id] ?? item.span;
+									const offsetSpan =
+										overrideOffsetMs !== undefined
+											? {
+													start: baseSpan.start + overrideOffsetMs,
+													end: baseSpan.end + overrideOffsetMs,
+												}
+											: baseSpan;
+									return (
+										<Item
+											key={`source-audio-${track.id}-${item.id}`}
+											id={`source-audio-${track.id}-${item.id}`}
+											rowId={`${SOURCE_AUDIO_ROW_ID}-${track.id}`}
+											span={offsetSpan}
+											disabled={!sourceAudioPath || !onSourceAudioStartOffsetChange}
+											isSelected={item.id === selectedClipId}
+											onSelect={() => onSelectClip?.(item.id)}
+											variant="audio"
+											waveformPeaks={track.peaks}
+											waveformSegmentSpan={item.sourceSpan ?? item.span}
+											waveformGain={Math.max(0, Math.min(1, settings.volume))}
+											waveformNormalize={Boolean(settings.normalize)}
+											muted={item.muted}
+										>
+											{track.label}
+										</Item>
+									);
+								})}
+						</Row>
+					);
+				})}
 
 			<Row
 				id={ZOOM_ROW_ID}
@@ -772,6 +798,9 @@ export default function TimelineCanvas({
 	onClearBlockSelection,
 	keyframes = [],
 	sourceAudioTracks = [],
+	sourceAudioPathByTrackId,
+	sourceAudioStartOffsetMsByPath,
+	onSourceAudioStartOffsetChange,
 	getSourceAudioTrackSettingsForClip,
 	showSourceAudioTrack = false,
 	liveSpanPreviewById,
@@ -1046,6 +1075,9 @@ export default function TimelineCanvas({
 					onSelectAudio={onSelectAudio}
 					onSelectCaption={onSelectCaption}
 					sourceAudioTracks={sourceAudioTracks}
+					sourceAudioPathByTrackId={sourceAudioPathByTrackId}
+					sourceAudioStartOffsetMsByPath={sourceAudioStartOffsetMsByPath}
+					onSourceAudioStartOffsetChange={onSourceAudioStartOffsetChange}
 					getSourceAudioTrackSettingsForClip={getSourceAudioTrackSettingsForClip}
 					showSourceAudioTrack={showSourceAudioTrack}
 					liveSpanPreviewById={liveSpanPreviewById}
