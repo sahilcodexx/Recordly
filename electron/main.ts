@@ -28,6 +28,7 @@ import {
 	registerIpcHandlers,
 } from "./ipc/handlers";
 import { ensureMediaServer } from "./mediaServer";
+import { startLinuxAudioSidecar, stopLinuxAudioSidecar } from "./ipc/recording/linuxAudioSidecar";
 import { shouldGrantDisplayCapture, shouldGrantMediaPermission } from "./permissionPolicy";
 import { ensurePackagedRendererServer, getPackagedRendererBaseUrl } from "./rendererServer";
 import {
@@ -894,6 +895,12 @@ app.on("before-quit", () => {
 	showCursor();
 	cleanupNativeVideoExportSessions();
 	void cleanupAllExportStreams();
+	// Tear down the long-running Linux system-audio capture (if any).
+	// The capture is only started lazily on the first recording that
+	// actually wants system audio, so on Windows/macOS this is a no-op.
+	if (process.platform === "linux") {
+		stopLinuxAudioSidecar();
+	}
 });
 
 app.on("window-all-closed", () => {
@@ -1041,6 +1048,12 @@ app.whenReady().then(async () => {
 			}
 		},
 	);
+
+	if (process.platform === "linux") {
+		void startLinuxAudioSidecar().catch((err) => {
+			console.warn("[linux-audio] Initial sidecar start failed:", err);
+		});
+	}
 
 	registerExtensionIpcHandlers();
 

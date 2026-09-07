@@ -566,7 +566,11 @@ interface Window {
 			startDelayMsByPath?: Record<string, number>;
 			error?: string;
 		}>;
-		setRecordingState: (recording: boolean) => Promise<void>;
+		prepareLinuxAudioSidecar: () => Promise<void>;
+		setRecordingState: (
+			recording: boolean,
+			options?: { systemAudioEnabled?: boolean },
+		) => Promise<void>;
 		getCursorTelemetry: (videoPath?: string) => Promise<{
 			success: boolean;
 			samples: CursorTelemetryPoint[];
