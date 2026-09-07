@@ -95,6 +95,10 @@ interface VideoExporterConfig extends ExportConfig {
 	clipRegions?: ClipRegion[];
 	sourceAudioFallbackPaths?: string[];
 	sourceAudioFallbackStartDelayMsByPath?: Record<string, number>;
+	// Per-source-audio-path trim from the start of the audio file (ms).
+	// Applied by the exporter as an FFmpeg `atrim=start=<seconds>` filter
+	// so the audio file is physically shortened.
+	sourceAudioTrimStartMsByPath?: Record<string, number>;
 	sourceAudioTrackSettings?: SourceAudioTrackSettings;
 	previewWidth?: number;
 	previewHeight?: number;
@@ -412,6 +416,7 @@ export class VideoExporter {
 								this.config.audioRegions,
 								this.config.sourceAudioFallbackPaths,
 								this.config.sourceAudioFallbackStartDelayMsByPath,
+								this.config.sourceAudioTrimStartMsByPath,
 								this.config.sourceAudioTrackSettings,
 							),
 							"audio processing",
@@ -864,6 +869,7 @@ export class VideoExporter {
 						this.config.audioRegions,
 						this.config.sourceAudioFallbackPaths,
 						this.config.sourceAudioFallbackStartDelayMsByPath,
+						this.config.sourceAudioTrimStartMsByPath,
 						this.config.sourceAudioTrackSettings,
 						this.config.clipRegions,
 					),
@@ -962,6 +968,7 @@ export class VideoExporter {
 						this.config.audioRegions,
 						this.config.sourceAudioFallbackPaths,
 						this.config.sourceAudioFallbackStartDelayMsByPath,
+						this.config.sourceAudioTrimStartMsByPath,
 						this.config.sourceAudioTrackSettings,
 						this.config.clipRegions,
 					),

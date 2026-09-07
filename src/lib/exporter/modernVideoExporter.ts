@@ -152,6 +152,7 @@ interface VideoExporterConfig extends ExportConfig {
 	clipRegions?: ClipRegion[];
 	sourceAudioFallbackPaths?: string[];
 	sourceAudioFallbackStartDelayMsByPath?: Record<string, number>;
+	sourceAudioTrimStartMsByPath?: Record<string, number>;
 	sourceAudioTrackSettings?: SourceAudioTrackSettings;
 	previewWidth?: number;
 	previewHeight?: number;
@@ -826,6 +827,7 @@ export class ModernVideoExporter {
 									this.config.audioRegions,
 									this.config.sourceAudioFallbackPaths,
 									this.config.sourceAudioFallbackStartDelayMsByPath,
+									this.config.sourceAudioTrimStartMsByPath,
 									this.config.sourceAudioTrackSettings,
 									this.config.clipRegions,
 								),
@@ -1961,6 +1963,7 @@ export class ModernVideoExporter {
 					this.config.audioRegions,
 					sourceAudioFallbackPaths,
 					this.config.sourceAudioFallbackStartDelayMsByPath,
+					this.config.sourceAudioTrimStartMsByPath,
 					this.config.sourceAudioTrackSettings,
 					this.config.clipRegions,
 				),
