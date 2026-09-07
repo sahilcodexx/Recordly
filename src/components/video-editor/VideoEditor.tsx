@@ -6768,30 +6768,26 @@ export default function VideoEditor() {
 									<div className="flex min-w-0 flex-1 items-center justify-center px-1">
 										<div
 											className="relative"
-											style={borderStyleToCss(getBorderStyle(borderStyle), {
-												paddingPx: borderPaddingPx,
-												opacity: borderOpacity,
-												cornerShape: borderCornerShape,
-												cornerRadiusPx: borderCornerRadiusPx,
-											})}
+											style={{
+												...borderStyleToCss(getBorderStyle(borderStyle), {
+													paddingPx: borderPaddingPx,
+													opacity: borderOpacity,
+													cornerShape: borderCornerShape,
+													cornerRadiusPx: borderCornerRadiusPx,
+												}),
+												width: "auto",
+												height: "100%",
+												aspectRatio: previewAspectRatioValue,
+												maxWidth: "100%",
+												margin: "0 auto",
+												boxSizing: "border-box",
+											}}
 										>
-											<div
-												className="relative h-full w-full"
-												style={{
-													width: "auto",
-													height: "100%",
-													aspectRatio: previewAspectRatioValue,
-													maxWidth: "100%",
-													margin: "0 auto",
-													boxSizing: "border-box",
-												}}
-											>
-												{renderPreviewPlayback(
-													videoPlaybackRef,
-													shouldSuspendPreviewRendering,
-													"inline",
-												)}
-											</div>
+											{renderPreviewPlayback(
+												videoPlaybackRef,
+												shouldSuspendPreviewRendering,
+												"inline",
+											)}
 										</div>
 									</div>
 								</div>
