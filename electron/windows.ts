@@ -44,6 +44,50 @@ const UPDATE_TOAST_WIDTH = 456;
 const UPDATE_TOAST_HEIGHT = 252;
 const UPDATE_TOAST_GAP_DIP = 18;
 
+// Source selector (HUD) window — the transparent frame around the recorder bar
+// and any open popover. Popovers open upward (`side="top"`) and can be up to
+// ~400px tall, so the window must leave enough vertical headroom above the bar
+// for them to render without being clipped by the window edge. The window is
+// always created tall enough to host the largest expected popover; this keeps
+// the layout stable on Wayland where the compositor controls placement and
+// dynamic setSize() is unreliable. The window is transparent, so the extra
+// space above the bar is invisible until a popover uses it.
+const SOURCE_SELECTOR_WIDTH = 620;
+const SOURCE_SELECTOR_MIN_HEIGHT = 360;
+const SOURCE_SELECTOR_MAX_HEIGHT = 900;
+const SOURCE_SELECTOR_DEFAULT_HEIGHT = 620;
+const SOURCE_SELECTOR_BOTTOM_MARGIN_DIP = 24;
+
+function getSourceSelectorInitialBounds() {
+	const { workArea } = getScreen().getPrimaryDisplay();
+	const x = Math.round(workArea.x + (workArea.width - SOURCE_SELECTOR_WIDTH) / 2);
+	const y = Math.max(
+		workArea.y,
+		Math.round(workArea.y + workArea.height - SOURCE_SELECTOR_DEFAULT_HEIGHT - SOURCE_SELECTOR_BOTTOM_MARGIN_DIP),
+	);
+	return {
+		x,
+		y,
+		width: SOURCE_SELECTOR_WIDTH,
+		height: SOURCE_SELECTOR_DEFAULT_HEIGHT,
+	};
+}
+
+export function resizeSourceSelectorWindow(
+	win: BrowserWindow | null,
+	requestedHeight: number,
+) {
+	if (!win || win.isDestroyed()) return;
+	if (typeof requestedHeight !== "number" || !Number.isFinite(requestedHeight)) return;
+	const next = Math.max(
+		SOURCE_SELECTOR_MIN_HEIGHT,
+		Math.min(SOURCE_SELECTOR_MAX_HEIGHT, Math.round(requestedHeight)),
+	);
+	const [currentWidth] = win.getSize();
+	if (currentWidth === next) return;
+	win.setSize(currentWidth, next);
+}
+
 function getEditorWindowQuery(): Record<string, string> {
 	const query: Record<string, string> = {
 		windowType: "editor",
@@ -933,15 +977,15 @@ export function createEditorWindow(): BrowserWindow {
 }
 
 export function createSourceSelectorWindow(): BrowserWindow {
-	const { width, height } = getScreen().getPrimaryDisplay().workAreaSize;
+	const initialBounds = getSourceSelectorInitialBounds();
 
 	const win = new BrowserWindow({
-		width: 620,
-		height: 420,
-		minHeight: 350,
-		maxHeight: 500,
-		x: Math.round((width - 620) / 2),
-		y: Math.round((height - 420) / 2),
+		width: initialBounds.width,
+		height: initialBounds.height,
+		minHeight: SOURCE_SELECTOR_MIN_HEIGHT,
+		maxHeight: SOURCE_SELECTOR_MAX_HEIGHT,
+		x: initialBounds.x,
+		y: initialBounds.y,
 		frame: false,
 		resizable: false,
 		alwaysOnTop: true,

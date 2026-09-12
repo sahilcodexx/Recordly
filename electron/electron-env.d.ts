@@ -222,6 +222,7 @@ interface Window {
 		getSources: (opts: Electron.SourcesOptions) => Promise<ProcessedDesktopSource[]>;
 		switchToEditor: () => Promise<void>;
 		openSourceSelector: () => Promise<void>;
+		sourceSelectorResize: (height: number) => Promise<{ success: boolean }>;
 		selectSource: (source: ProcessedDesktopSource) => Promise<ProcessedDesktopSource>;
 		showSourceHighlight: (source: ProcessedDesktopSource) => Promise<{ success: boolean }>;
 		getSelectedSource: () => Promise<ProcessedDesktopSource | null>;

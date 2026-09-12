@@ -439,6 +439,55 @@ function LaunchWindowContent() {
 	const useNativeHudBarDrag =
 		platform === "linux" || hudOverlayMousePassthroughSupported === false;
 
+	// Keep the source-selector window tall enough to host the currently open
+	// popover. On Wayland the compositor owns window placement, so the window
+	// only resizes — it cannot be repositioned. The bar inside the window is
+	// anchored to the bottom (`items-end pb-5`), and the popover opens upward
+	// with `side="top"`, so we measure the visible popover and grow the window
+	// upward to fit.
+	useEffect(() => {
+		if (typeof window === "undefined") return;
+		const root = document.documentElement;
+		if (!root) return;
+
+		const measureAndResize = () => {
+			const api = window.electronAPI;
+			if (!api?.sourceSelectorResize) return;
+			const openPopover = document.querySelector<HTMLElement>(
+				'.launch-theme[data-state="open"][data-hud-interactive]',
+			);
+			const bar = hudBarRef.current;
+			const barHeight = bar?.getBoundingClientRect().height ?? 46;
+			const bottomPadding = 20; // matches pb-5 on the wrapper
+			const topSafety = 12; // breathing room above the popover
+			if (!openPopover) {
+				void api.sourceSelectorResize(barHeight + bottomPadding + 60);
+				return;
+			}
+			const popoverHeight = openPopover.getBoundingClientRect().height;
+			const desired = barHeight + bottomPadding + popoverHeight + topSafety;
+			void api.sourceSelectorResize(desired);
+		};
+
+		// Two RAFs: one to let the popover mount, one to let it measure.
+		const raf = requestAnimationFrame(() => {
+			requestAnimationFrame(measureAndResize);
+		});
+
+		// Also resize if the popover content resizes after open (e.g. devices list updates).
+		const observer = new ResizeObserver(() => {
+			measureAndResize();
+		});
+		document.querySelectorAll('.launch-theme[data-hud-interactive]').forEach((node) => {
+			observer.observe(node);
+		});
+
+		return () => {
+			cancelAnimationFrame(raf);
+			observer.disconnect();
+		};
+	}, [openId, hudBarRef]);
+
 	return (
 		<HudInteractionContext.Provider
 			value={{ onMouseEnter: handleHudMouseEnter, onMouseLeave: handleHudMouseLeave }}

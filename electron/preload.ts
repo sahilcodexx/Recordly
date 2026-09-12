@@ -485,6 +485,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
 	openSourceSelector: () => {
 		return ipcRenderer.invoke("open-source-selector");
 	},
+	sourceSelectorResize: (height: number) => {
+		return ipcRenderer.invoke("source-selector-resize", height) as Promise<{
+			success: boolean;
+		}>;
+	},
 	selectSource: (source: ProcessedDesktopSource) => {
 		return ipcRenderer.invoke("select-source", source);
 	},

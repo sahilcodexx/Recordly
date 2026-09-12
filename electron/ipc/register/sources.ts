@@ -14,7 +14,7 @@ import {
 	resolveLinuxWindowBounds,
 	stopWindowBoundsCapture,
 } from "../cursor/bounds";
-import { reassertHudOverlayMousePassthrough } from "../../windows";
+import { reassertHudOverlayMousePassthrough, resizeSourceSelectorWindow } from "../../windows";
 
 const execFileAsync = promisify(execFile);
 const SOURCE_LIST_CACHE_TTL_MS = 1200;
@@ -529,6 +529,12 @@ body{background:transparent;overflow:hidden;width:100vw;height:100vh}
       return
     }
     createSourceSelectorWindow()
+  })
+  ipcMain.handle('source-selector-resize', (_event, height: number) => {
+    const sourceSelectorWin = getSourceSelectorWindow()
+    if (!sourceSelectorWin) return { success: false }
+    resizeSourceSelectorWindow(sourceSelectorWin, height)
+    return { success: true }
   })
   ipcMain.handle('switch-to-editor', () => {
     console.log('[switch-to-editor] Opening editor window')
