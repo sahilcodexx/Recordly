@@ -354,9 +354,7 @@ export const SourceSelector = React.memo(function SourceSelector({
 				sideOffset={8}
 				side="top"
 				alignOffset={-8}
-				avoidCollisions={true}
 				collisionPadding={10}
-				usePortal={false}
 				onMouseEnter={onMouseEnter}
 			>
 				<SourceSelectorContent
